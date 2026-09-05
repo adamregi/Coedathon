@@ -29,32 +29,45 @@ function Sidebar() {
       <nav className="sidebar-nav">
         <NavLink to="/dashboard" className={({ isActive }) => (isActive ? "active" : "")}>
           <IconDashboard size={19} />
-          <span>Dashboard</span>
+          <span>{userRole === "employer" ? "Candidate Discovery" : "Dashboard"}</span>
         </NavLink>
 
-        <NavLink to="/students" className={({ isActive }) => (isActive ? "active" : "")}>
-          <IconCandidates size={19} />
-          <span>Candidates</span>
-        </NavLink>
+        {userRole === "student" && (
+          <NavLink to={`/students/${user?.id}`} className={({ isActive }) => (isActive ? "active" : "")}>
+            <IconCandidates size={19} />
+            <span>My Skills & Profile</span>
+          </NavLink>
+        )}
+
+        {userRole === "admin" && (
+          <NavLink to="/students" className={({ isActive }) => (isActive ? "active" : "")}>
+            <IconCandidates size={19} />
+            <span>Candidate Directory</span>
+          </NavLink>
+        )}
 
         <NavLink to="/jobs" className={({ isActive }) => (isActive ? "active" : "")}>
           <IconBriefcase size={19} />
-          <span>Job Openings</span>
+          <span>{userRole === "employer" ? "Job Requisitions" : "Job Openings"}</span>
         </NavLink>
 
-        <NavLink to="/analysis" className={({ isActive }) => (isActive ? "active" : "")}>
-          <IconTarget size={19} />
-          <span>Skill Analysis</span>
-        </NavLink>
+        {userRole !== "employer" && (
+          <>
+            <NavLink to="/analysis" className={({ isActive }) => (isActive ? "active" : "")}>
+              <IconTarget size={19} />
+              <span>Skill Analysis</span>
+            </NavLink>
 
-        <NavLink to="/recommendations" className={({ isActive }) => (isActive ? "active" : "")}>
-          <IconRoadmap size={19} />
-          <span>Recommendations</span>
-        </NavLink>
+            <NavLink to="/recommendations" className={({ isActive }) => (isActive ? "active" : "")}>
+              <IconRoadmap size={19} />
+              <span>Recommendations</span>
+            </NavLink>
+          </>
+        )}
 
         <NavLink to="/applications" className={({ isActive }) => (isActive ? "active" : "")}>
           <IconApplications size={19} />
-          <span>Applications</span>
+          <span>{userRole === "employer" ? "Applications Received" : "My Applications"}</span>
         </NavLink>
       </nav>
 

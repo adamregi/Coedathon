@@ -99,12 +99,23 @@ function Jobs() {
                       <Link to={`/jobs/${job.id}`} className="btn-outline-sm">
                         Details & Skills
                       </Link>
-                      <button
-                        className="btn-primary-sm"
-                        onClick={() => handleApply(job.id, job.title)}
-                      >
-                        Apply Now
-                      </button>
+                      {isEmployer ? (
+                        <Link
+                          to={`/dashboard?jobId=${job.id}`}
+                          className="btn-primary-sm"
+                          title="Discover & search candidates matching this requisition"
+                          style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                        >
+                          🔍 Match Candidates
+                        </Link>
+                      ) : (
+                        <button
+                          className="btn-primary-sm"
+                          onClick={() => handleApply(job.id, job.title)}
+                        >
+                          Apply Now
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

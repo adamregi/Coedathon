@@ -3,7 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { studentApi, jobApi, analysisApi, applicationApi } from "../services/api";
 
 function Analysis() {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isEmployer } = useAuth();
 
   const [students, setStudents] = useState([]);
   const [jobs, setJobs] = useState([]);
@@ -152,9 +152,11 @@ function Analysis() {
                 Formula: Weighted proficiency ratio (Mandatory skills = 2.0x, Optional skills = 1.0x).
               </p>
             </div>
-            <button className="btn-primary" onClick={handleApplyWithSnapshot}>
-              💼 Apply with this Snapshot
-            </button>
+            {!isEmployer && (
+              <button className="btn-primary" onClick={handleApplyWithSnapshot}>
+                💼 Apply with this Snapshot
+              </button>
+            )}
           </div>
 
           {/* Granular Skill Gap Table */}

@@ -4,7 +4,9 @@ from pydantic import BaseModel, Field
 
 
 class StudentSkillCreate(BaseModel):
-    skill_id: int
+    skill_id: Optional[int] = None
+    skill_name: Optional[str] = None
+    category: Optional[str] = None
     proficiency: int = Field(..., ge=1, le=5, description="Proficiency level between 1 and 5")
 
 

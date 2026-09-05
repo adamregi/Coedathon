@@ -4,30 +4,33 @@ import { useAuth } from "../context/AuthContext";
 import { studentApi } from "../services/api";
 
 function Students() {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isEmployer } = useAuth();
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     async function fetchStudents() {
+      if (isEmployer) {
+        setLoading(false);
+        return;
+      }
       try {
         if (isAdmin) {
           const res = await studentApi.getStudents();
           const list = Array.isArray(res) ? res : res.data || [];
           setStudents(list);
         } else {
-          // For non-admin, load current user's student profile
+          // For student role, load own student profile
           try {
-            const profile = await studentApi.getStudent(user.id);
+            const profile = await studentApi.getStudent(user?.id);
             if (profile) setStudents([profile]);
           } catch {
-            // Profile may be user.id or created on demand
             setStudents([
               {
-                id: user.id,
-                name: user.full_name || "Student User",
-                email: user.email,
+                id: user?.id,
+                name: user?.full_name || "Student User",
+                email: user?.email,
                 headline: "Candidate Profile",
               },
             ]);
@@ -40,7 +43,31 @@ function Students() {
       }
     }
     fetchStudents();
-  }, [isAdmin, user]);
+  }, [isAdmin, isEmployer, user]);
+
+  if (isEmployer) {
+    return (
+      <div className="page-wrapper">
+        <div className="page-header">
+          <div>
+            <h1>Candidate Discovery & Search</h1>
+            <p>Filter candidates by technical skills against your job requisitions</p>
+          </div>
+        </div>
+
+        <div className="dashboard-section" style={{ textAlign: "center", padding: "48px 24px" }}>
+          <div style={{ fontSize: "3rem", marginBottom: "16px" }}>🔍</div>
+          <h2>Search Candidates by Skills</h2>
+          <p style={{ maxWidth: "560px", margin: "8px auto 24px auto", color: "var(--ink-muted)", lineHeight: 1.6 }}>
+            Employers can match, filter, and inspect verified candidate proficiencies directly against active job requisitions in the Candidate Discovery Studio.
+          </p>
+          <Link to="/dashboard" className="btn-primary" style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+            Open Candidate Discovery Studio →
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page-wrapper">

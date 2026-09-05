@@ -4,8 +4,9 @@ from app.core.errors import (
     PermissionDeniedException,
     ResourceConflictException,
     ResourceNotFoundException,
+    ValidationException,
 )
-from app.domain.models import Role, StudentProfile, StudentSkill, User
+from app.domain.models import Role, SkillCatalog, StudentProfile, StudentSkill, User
 from app.domain.protocols import SkillRepositoryProtocol, StudentRepositoryProtocol, UserRepositoryProtocol
 from app.schemas.student import (
     StudentProfileCreate,
@@ -171,11 +172,28 @@ class StudentService:
         if requesting_user.role == Role.STUDENT and requesting_user.id != profile.user_id:
             raise PermissionDeniedException("Access denied: You cannot modify another student's skills")
 
-        catalog_skill = self.skill_repo.get_by_id(req.skill_id)
-        if not catalog_skill:
-            raise ResourceNotFoundException(f"Skill with ID {req.skill_id} not found in catalog")
+        catalog_skill = None
+        if req.skill_id:
+            catalog_skill = self.skill_repo.get_by_id(req.skill_id)
+            if not catalog_skill:
+                raise ResourceNotFoundException(f"Skill with ID {req.skill_id} not found in catalog")
+        elif req.skill_name:
+            norm = req.skill_name.strip().lower()
+            catalog_skill = self.skill_repo.get_by_normalized_name(norm)
+            if not catalog_skill:
+                catalog_skill = self.skill_repo.create(
+                    SkillCatalog(
+                        id=None,
+                        name=req.skill_name.strip(),
+                        normalized_name=norm,
+                        category=req.category or "General",
+                        description=f"Registered competency: {req.skill_name.strip()}",
+                    )
+                )
+        else:
+            raise ValidationException("Either skill_id or skill_name must be provided")
 
-        saved = self.student_repo.upsert_skill(profile.student_id, req.skill_id, req.proficiency)
+        saved = self.student_repo.upsert_skill(profile.student_id, catalog_skill.id, req.proficiency)
 
         emit_audit_event(
             action="STUDENT_SKILL_UPSERTED",
@@ -183,7 +201,7 @@ class StudentService:
             actor_role=requesting_user.role.value,
             target_type="student_skill",
             target_id=str(saved.id),
-            details={"skill_id": req.skill_id, "proficiency": req.proficiency},
+            details={"skill_id": catalog_skill.id, "proficiency": req.proficiency},
         )
 
         return StudentSkillRead(

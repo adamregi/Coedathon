@@ -123,10 +123,20 @@ function JobDetails() {
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "0.75rem" }}>
-          <button className="btn-primary" onClick={handleApply}>
-            ⚡ Apply for Position
-          </button>
+        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+          {isEmployer ? (
+            <Link
+              to={`/dashboard?jobId=${id}`}
+              className="btn-primary"
+              style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "6px" }}
+            >
+              🔍 Discover & Filter Matching Candidates
+            </Link>
+          ) : (
+            <button className="btn-primary" onClick={handleApply}>
+              ⚡ Apply for Position
+            </button>
+          )}
           <Link to="/jobs" className="btn-secondary">
             ← Back to Jobs
           </Link>
