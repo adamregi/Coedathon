@@ -821,6 +821,101 @@ button, input, select, textarea {
   font-size: 0.8rem;
   font-weight: 500;
   color: var(--ink-title);
+  transition: all var(--ease-tactile);
+}
+
+.skill-competency-pill.highlighted {
+  border-color: var(--brand-primary);
+  background-color: var(--brand-primary-soft);
+  color: var(--brand-primary);
+  box-shadow: 0 0 0 1px var(--brand-primary);
+  font-weight: 600;
+}
+
+.skill-req-status-met {
+  color: #065f46;
+  font-size: 0.725rem;
+  font-weight: 700;
+  background-color: #ecfdf5;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  margin-left: 4px;
+}
+
+.skill-req-status-gap {
+  color: #b45309;
+  font-size: 0.725rem;
+  font-weight: 700;
+  background-color: #fffbeb;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  margin-left: 4px;
+}
+
+/* Skill Search & Filter Chips */
+.skill-filter-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 22px;
+  background-color: var(--surface-panel);
+  border: var(--border-hairline);
+  border-radius: var(--radius-sm);
+  padding: 14px 18px;
+}
+
+.skill-chips-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.skill-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  background-color: #ffffff;
+  border: var(--border-hairline);
+  color: var(--ink-title);
+  font-size: 0.825rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--ease-tactile);
+}
+
+.skill-filter-chip:hover {
+  border-color: #cbd5e1;
+  background-color: var(--surface-subtle);
+  transform: translateY(-1px);
+}
+
+.skill-filter-chip.active {
+  background-color: var(--brand-primary);
+  border-color: var(--brand-primary);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+}
+
+.skill-filter-chip.is-job-req {
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.skill-filter-chip.is-job-req.active {
+  background: linear-gradient(135deg, var(--brand-primary), #6366f1);
+}
+
+.proficiency-select-inline {
+  padding: 8px 12px;
+  border: var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background-color: #ffffff;
+  font-size: 0.825rem;
+  font-weight: 600;
+  color: var(--ink-title);
+  outline: none;
 }
 
 .skill-dots {

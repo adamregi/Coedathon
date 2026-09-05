@@ -193,8 +193,11 @@ export const analysisApi = {
     return res.data?.data || res.data;
   },
   // Candidate discovery for employers
-  getCandidateRankings: async (jobId) => {
-    const res = await api.get(`/api/v1/analysis/jobs/${jobId}/candidates`);
+  getCandidateRankings: async (jobId, { skill, min_proficiency } = {}) => {
+    const params = {};
+    if (skill) params.skill = skill;
+    if (min_proficiency) params.min_proficiency = min_proficiency;
+    const res = await api.get(`/api/v1/analysis/jobs/${jobId}/candidates`, { params });
     return res.data?.data || res.data;
   },
   getCandidateProfile: async (jobId, studentId) => {

@@ -27,6 +27,7 @@ from app.domain.recommendation_engine import generate_recommendations
 from app.schemas.matching import (
     AnalysisRunRead,
     CandidateRankingItemRead,
+    CandidateSkillSummary,
     RecommendationRead,
     SkillMatchResultRead,
 )
@@ -246,27 +247,64 @@ class MatchingService:
         return [self._to_analysis_read(r) for r in runs], total
 
     def list_candidate_rankings_for_job(
-        self, job_id: int, actor: User, skip: int = 0, limit: int = 50
+        self,
+        job_id: int,
+        actor: User,
+        skill_name: Optional[str] = None,
+        min_proficiency: Optional[int] = None,
+        skip: int = 0,
+        limit: int = 50,
     ) -> Tuple[List[CandidateRankingItemRead], int]:
         job = self.job_repo.get_job_by_id(job_id)
         if not job:
             raise ResourceNotFoundException(f"Job with ID {job_id} not found")
 
-        runs, total = self.matching_repo.list_candidate_runs_for_job(job_id, skip=skip, limit=limit)
+        runs, _ = self.matching_repo.list_candidate_runs_for_job(job_id, skip=0, limit=1000)
         candidates = []
         for r in runs:
             student = self.student_repo.get_student_by_id(r.student_id)
+            if not student:
+                continue
+
+            skill_summaries = []
+            if student.skills:
+                for s in student.skills:
+                    skill_summaries.append(
+                        CandidateSkillSummary(
+                            skill_id=s.skill_id,
+                            skill_name=s.skill_name or f"Skill #{s.skill_id}",
+                            category=s.category,
+                            proficiency=s.proficiency,
+                        )
+                    )
+
+            # Filter by skill name if provided
+            if skill_name:
+                q = skill_name.strip().lower()
+                matched_skill = next(
+                    (sk for sk in skill_summaries if q in sk.skill_name.lower()),
+                    None,
+                )
+                if not matched_skill:
+                    continue
+                if min_proficiency and matched_skill.proficiency < min_proficiency:
+                    continue
+
             candidates.append(
                 CandidateRankingItemRead(
-                    student_id=student.user_id if student and student.user_id else r.student_id,
-                    student_name=student.name if student else "Unknown",
-                    student_email=student.email if student else "",
+                    student_id=student.user_id if student.user_id else r.student_id,
+                    student_name=student.name,
+                    student_email=student.email,
                     overall_match_percentage=r.overall_match_percentage,
                     analysis_run_id=r.id,
                     calculated_at=r.created_at,
+                    headline=student.headline,
+                    skills=skill_summaries,
                 )
             )
-        return candidates, total
+
+        filtered_total = len(candidates)
+        return candidates[skip : skip + limit], filtered_total
 
     def access_candidate_student_profile(
         self, student_id: int, job_id: int, employer: User

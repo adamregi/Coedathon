@@ -1,6 +1,13 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { dashboardApi, jobApi, analysisApi, studentApi, applicationApi } from "../services/api";
+import {
+  dashboardApi,
+  jobApi,
+  analysisApi,
+  studentApi,
+  applicationApi,
+  skillApi,
+} from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import Loading from "../components/Loading";
 import ErrorMessage from "../components/ErrorMessage";
@@ -11,10 +18,10 @@ import {
   IconApplications,
   IconTarget,
   IconSearch,
+  IconFilter,
   IconSparkle,
   IconCheck,
   IconClose,
-  IconArrowRight,
   IconRefresh,
 } from "../components/Icons";
 
@@ -36,8 +43,16 @@ function Dashboard() {
   const [selectedJobId, setSelectedJobId] = useState("");
   const [candidates, setCandidates] = useState([]);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
+
+  // Search & Filtering State
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedSkillFilter, setSelectedSkillFilter] = useState("all");
+  const [minProficiencyFilter, setMinProficiencyFilter] = useState(0);
   const [minMatchFilter, setMinMatchFilter] = useState(0);
+
+  // Requisition Skills & Catalog Skills State
+  const [jobRequirements, setJobRequirements] = useState([]);
+  const [catalogSkills, setCatalogSkills] = useState([]);
 
   // Gated Profile Modal State
   const [inspectedCandidate, setInspectedCandidate] = useState(null);
@@ -74,37 +89,50 @@ function Dashboard() {
     }
   };
 
-  // 2. Fetch Jobs for Discovery Hub
-  const loadJobsList = async () => {
+  // 2. Fetch Jobs and Global Skill Catalog
+  const loadInitialData = async () => {
     try {
-      const jobsData = await jobApi.getJobs();
+      const [jobsData, skillsData] = await Promise.all([
+        jobApi.getJobs(),
+        skillApi.getSkills().catch(() => []),
+      ]);
       const list = Array.isArray(jobsData) ? jobsData : [];
       setJobs(list);
+      setCatalogSkills(Array.isArray(skillsData) ? skillsData : []);
       if (list.length > 0 && !selectedJobId) {
         setSelectedJobId(String(list[0].id));
       }
     } catch (err) {
-      console.warn("Jobs list fetch error:", err);
+      console.warn("Initial data fetch error:", err);
     }
   };
 
   useEffect(() => {
     loadDashboardMetrics();
-    loadJobsList();
+    loadInitialData();
   }, []);
 
-  // 3. Fetch Ranked Candidates whenever selectedJobId changes
-  const loadCandidatesForJob = async (jobId) => {
+  // 3. Fetch Job Requirements & Ranked Candidates when selectedJobId changes
+  const loadCandidatesAndRequirements = async (jobId) => {
     if (!jobId) return;
     try {
       setLoadingCandidates(true);
       setError("");
-      const data = await analysisApi.getCandidateRankings(jobId);
-      setCandidates(Array.isArray(data) ? data : []);
+
+      const [candidatesData, reqsData] = await Promise.all([
+        analysisApi.getCandidateRankings(jobId, {
+          skill: selectedSkillFilter !== "all" ? selectedSkillFilter : undefined,
+          min_proficiency: minProficiencyFilter > 0 ? minProficiencyFilter : undefined,
+        }),
+        jobApi.getRequirements(jobId).catch(() => []),
+      ]);
+
+      setCandidates(Array.isArray(candidatesData) ? candidatesData : []);
+      setJobRequirements(Array.isArray(reqsData) ? reqsData : []);
     } catch (err) {
-      console.warn("Candidate rankings fetch error:", err);
-      // If none, fallback gracefully
+      console.warn("Candidates/Requirements fetch error:", err);
       setCandidates([]);
+      setJobRequirements([]);
     } finally {
       setLoadingCandidates(false);
     }
@@ -112,9 +140,9 @@ function Dashboard() {
 
   useEffect(() => {
     if (selectedJobId) {
-      loadCandidatesForJob(selectedJobId);
+      loadCandidatesAndRequirements(selectedJobId);
     }
-  }, [selectedJobId]);
+  }, [selectedJobId, selectedSkillFilter, minProficiencyFilter]);
 
   // 4. Inspect Candidate Gated Profile
   const handleInspectCandidate = async (candidate) => {
@@ -126,7 +154,6 @@ function Dashboard() {
       const profile = await analysisApi.getCandidateProfile(selectedJobId, candidate.student_id);
       setInspectedProfile(profile);
     } catch (err) {
-      console.warn("Gated profile fetch failed, falling back to standard student profile:", err);
       try {
         const fallback = await studentApi.getStudent(candidate.student_id);
         setInspectedProfile(fallback);
@@ -148,28 +175,67 @@ function Dashboard() {
   const handleShortlist = async (candidate) => {
     try {
       setShortlistStatus((prev) => ({ ...prev, [candidate.student_id]: "loading" }));
-      // Transition or create application to shortlisted
       await applicationApi.submitApplication(selectedJobId);
       setShortlistStatus((prev) => ({ ...prev, [candidate.student_id]: "done" }));
       setStatusMessage(`Candidate ${candidate.student_name} successfully shortlisted!`);
       setTimeout(() => setStatusMessage(""), 4000);
     } catch (err) {
-      // If already applied, report success or notice
       setShortlistStatus((prev) => ({ ...prev, [candidate.student_id]: "done" }));
       setStatusMessage(`Candidate ${candidate.student_name} marked in recruiter pipeline.`);
       setTimeout(() => setStatusMessage(""), 4000);
     }
   };
 
-  // 6. Filter Candidates
+  // Helper to render proficiency dots
+  const renderProficiencyDots = (lvl) => {
+    const filled = Math.min(5, Math.max(0, lvl || 0));
+    return "●".repeat(filled) + "○".repeat(5 - filled);
+  };
+
+  // Helper to check requirement alignment
+  const getRequirementComparison = (skillName, candidateProf) => {
+    if (!jobRequirements || jobRequirements.length === 0) return null;
+    const req = jobRequirements.find(
+      (r) => (r.skill_name || "").toLowerCase() === (skillName || "").toLowerCase()
+    );
+    if (!req) return null;
+    const reqLevel = req.required_proficiency ?? req.required_level ?? 1;
+    const isMet = (candidateProf || 0) >= reqLevel;
+    return {
+      reqLevel,
+      isMet,
+      mandatory: req.mandatory,
+    };
+  };
+
+  // 6. Client-Side Real-Time Filtering
   const filteredCandidates = candidates.filter((c) => {
     const matchVal = c.overall_match_percentage ?? c.match_percentage ?? 0;
     const matchesThreshold = matchVal >= minMatchFilter;
+
+    // Search query: checks student name, email, headline, or ANY skill name
+    const q = (searchTerm || "").trim().toLowerCase();
     const matchesSearch =
-      !searchTerm ||
-      (c.student_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (c.student_email || "").toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesThreshold && matchesSearch;
+      !q ||
+      (c.student_name || "").toLowerCase().includes(q) ||
+      (c.student_email || "").toLowerCase().includes(q) ||
+      (c.headline || "").toLowerCase().includes(q) ||
+      (c.skills && c.skills.some((sk) => sk.skill_name.toLowerCase().includes(q)));
+
+    // Specific skill tag filter
+    let matchesSkill = true;
+    if (selectedSkillFilter && selectedSkillFilter !== "all") {
+      const targetSkill = c.skills?.find(
+        (sk) => sk.skill_name.toLowerCase() === selectedSkillFilter.toLowerCase()
+      );
+      if (!targetSkill) {
+        matchesSkill = false;
+      } else if (minProficiencyFilter > 0 && targetSkill.proficiency < minProficiencyFilter) {
+        matchesSkill = false;
+      }
+    }
+
+    return matchesThreshold && matchesSearch && matchesSkill;
   });
 
   const selectedJob = jobs.find((j) => String(j.id) === String(selectedJobId));
@@ -181,13 +247,12 @@ function Dashboard() {
     return { pill: "match-dial-low", fill: "#94a3b8", label: "Developing Fit" };
   };
 
-  // Simulate what-if upskilling
-  const handleSimulateSkillBump = (skillId, currentProf) => {
-    const newProf = Math.min(5, (simulatedSkills[skillId] || currentProf) + 1);
-    const updated = { ...simulatedSkills, [skillId]: newProf };
+  // What-If Simulation
+  const handleSimulateSkillBump = (skillName, currentProf) => {
+    const newProf = Math.min(5, (simulatedSkills[skillName] || currentProf) + 1);
+    const updated = { ...simulatedSkills, [skillName]: newProf };
     setSimulatedSkills(updated);
 
-    // Calculate approximate bump
     const baseScore = inspectedCandidate?.overall_match_percentage || 50;
     const bumped = Math.min(100, baseScore + Object.keys(updated).length * 15);
     setSimulatedScore(bumped);
@@ -198,9 +263,9 @@ function Dashboard() {
       {/* Editorial Header */}
       <div className="page-header">
         <div>
-          <h1 className="page-title">Talent Intelligence & Discovery</h1>
+          <h1 className="page-title">Talent Intelligence & Skill Discovery</h1>
           <p className="page-subtitle">
-            Explore verified engineering competencies, inspect deterministic candidate match scores, and discover talent through authentic proficiency data.
+            Search candidates by engineering skills, compare proficiencies directly against job requirements, and shortlist the right talent.
           </p>
         </div>
         <div style={{ display: "flex", gap: "10px" }}>
@@ -208,12 +273,12 @@ function Dashboard() {
             className="btn btn-secondary"
             onClick={() => {
               loadDashboardMetrics();
-              if (selectedJobId) loadCandidatesForJob(selectedJobId);
+              if (selectedJobId) loadCandidatesAndRequirements(selectedJobId);
             }}
             disabled={loadingMetrics || loadingCandidates}
           >
             <IconRefresh size={16} />
-            <span>Refresh Data</span>
+            <span>Refresh Studio</span>
           </button>
           <Link to="/jobs/add" className="btn btn-primary">
             <span>Post New Requisition +</span>
@@ -294,14 +359,14 @@ function Dashboard() {
             </div>
             <h2 className="studio-title">Candidate Discovery Studio</h2>
             <p className="studio-copy">
-              Talent automatically ranked in descending order of requirement fulfillment via pure domain matching logic.
+              Search candidates by specific skills, evaluate alignment with role requirements, and filter by minimum proficiency.
             </p>
           </div>
 
           {/* Job Requisition Switcher */}
-          <div style={{ minWidth: "260px" }}>
+          <div style={{ minWidth: "270px" }}>
             <label className="form-label" style={{ fontSize: "0.8rem", color: "var(--ink-muted)" }}>
-              Target Requisition:
+              Target Job Requisition:
             </label>
             <select
               className="form-control"
@@ -327,7 +392,7 @@ function Dashboard() {
               backgroundColor: "var(--surface-panel)",
               border: "var(--border-hairline)",
               borderRadius: "var(--radius-sm)",
-              marginBottom: "22px",
+              marginBottom: "20px",
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
@@ -347,12 +412,125 @@ function Dashboard() {
             </div>
 
             <Link to={`/jobs/${selectedJob.id}`} className="btn btn-secondary btn-sm">
-              Manage Requirements →
+              Manage Requirements ({jobRequirements.length}) →
             </Link>
           </div>
         )}
 
-        {/* Filter Belt */}
+        {/* ========================================================================= */}
+        {/* SKILL SEARCH & MULTI-FILTER BELT                                         */}
+        {/* ========================================================================= */}
+        <div className="skill-filter-section">
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, fontSize: "0.875rem", color: "var(--ink-title)" }}>
+              <IconFilter size={16} />
+              <span>Filter Candidates by Skills & Competency</span>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <label style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--ink-muted)" }}>
+                Minimum Proficiency:
+              </label>
+              <select
+                className="proficiency-select-inline"
+                value={minProficiencyFilter}
+                onChange={(e) => setMinProficiencyFilter(Number(e.target.value))}
+              >
+                <option value={0}>Any Proficiency (1-5)</option>
+                <option value={2}>Working (2+)</option>
+                <option value={3}>Competent (3+)</option>
+                <option value={4}>Advanced (4+)</option>
+                <option value={5}>Master / Expert (5/5)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Quick Skill Filter Chips Row */}
+          <div className="skill-chips-row">
+            <button
+              className={`skill-filter-chip ${selectedSkillFilter === "all" ? "active" : ""}`}
+              onClick={() => setSelectedSkillFilter("all")}
+            >
+              All Skills ({candidates.length})
+            </button>
+
+            {/* Requisition Required Skills (Highlighted as Job Requirements) */}
+            {jobRequirements.map((req) => {
+              const sName = req.skill_name || `Skill #${req.skill_id}`;
+              const reqProf = req.required_proficiency ?? req.required_level ?? 1;
+              const isSelected = selectedSkillFilter.toLowerCase() === sName.toLowerCase();
+              return (
+                <button
+                  key={req.id || req.skill_id}
+                  className={`skill-filter-chip is-job-req ${isSelected ? "active" : ""}`}
+                  onClick={() => setSelectedSkillFilter(isSelected ? "all" : sName)}
+                  title={`Job Requirement: Minimum Level ${reqProf}/5 ${req.mandatory ? "(Mandatory)" : "(Optional)"}`}
+                >
+                  <span>✦ {sName}</span>
+                  <span style={{ fontSize: "0.725rem", opacity: 0.85 }}>Req: {reqProf}/5</span>
+                </button>
+              );
+            })}
+
+            {/* Other Catalog Skills */}
+            {catalogSkills
+              .filter((cat) => !jobRequirements.some((r) => (r.skill_name || "").toLowerCase() === cat.name.toLowerCase()))
+              .map((cat) => {
+                const isSelected = selectedSkillFilter.toLowerCase() === cat.name.toLowerCase();
+                return (
+                  <button
+                    key={cat.id}
+                    className={`skill-filter-chip ${isSelected ? "active" : ""}`}
+                    onClick={() => setSelectedSkillFilter(isSelected ? "all" : cat.name)}
+                  >
+                    <span>{cat.name}</span>
+                  </button>
+                );
+              })}
+          </div>
+
+          {/* Active Filter Status Bar */}
+          {(selectedSkillFilter !== "all" || minProficiencyFilter > 0 || searchTerm) && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "8px 12px",
+                backgroundColor: "#ffffff",
+                borderRadius: "var(--radius-xs)",
+                fontSize: "0.8rem",
+                color: "var(--ink-muted)",
+                border: "1px dashed var(--border-hairline)",
+              }}
+            >
+              <div>
+                Active Skill Filter:{" "}
+                <strong style={{ color: "var(--brand-primary)" }}>
+                  {selectedSkillFilter !== "all" ? selectedSkillFilter : "All Skills"}
+                </strong>
+                {minProficiencyFilter > 0 && ` (Min Level: ${minProficiencyFilter}/5)`}
+                {searchTerm && ` • Search: "${searchTerm}"`}
+                {" — "}
+                Found <strong>{filteredCandidates.length}</strong> matching candidate(s)
+              </div>
+
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ fontSize: "0.75rem", padding: "2px 6px" }}
+                onClick={() => {
+                  setSelectedSkillFilter("all");
+                  setMinProficiencyFilter(0);
+                  setSearchTerm("");
+                }}
+              >
+                Clear Filters ✕
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Search Input & Match Threshold Slider Belt */}
         <div className="studio-filter-belt">
           <div className="filter-group-left">
             <div className="search-input-wrap">
@@ -360,7 +538,7 @@ function Dashboard() {
               <input
                 type="text"
                 className="search-field"
-                placeholder="Search candidate name or email..."
+                placeholder="Search candidate name, email, or skill..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -368,7 +546,7 @@ function Dashboard() {
           </div>
 
           <div className="threshold-slider-group">
-            <span>Min. Match: <strong>{minMatchFilter}%</strong></span>
+            <span>Overall Match: <strong>{minMatchFilter}%</strong></span>
             <input
               type="range"
               min="0"
@@ -392,12 +570,14 @@ function Dashboard() {
 
         {/* Candidate Dossier Cards */}
         {loadingCandidates ? (
-          <Loading text="Ranking talent pool against requisition requirements..." />
+          <Loading text="Ranking talent pool against requisition requirements & skills..." />
         ) : filteredCandidates.length === 0 ? (
           <EmptyState
             title="No Matching Candidates Found"
             message={
-              candidates.length === 0
+              selectedSkillFilter !== "all"
+                ? `No candidates found with skill "${selectedSkillFilter}" meeting ${minProficiencyFilter > 0 ? `proficiency ${minProficiencyFilter}/5` : "criteria"}. Try selecting another skill chip or lowering the proficiency threshold.`
+                : candidates.length === 0
                 ? "No candidates have completed a gap analysis for this requisition yet. Run a skill analysis to generate match scores."
                 : `No candidates met the ${minMatchFilter}% threshold or search criteria.`
             }
@@ -438,22 +618,54 @@ function Dashboard() {
                       <span>Rank: <strong>#{idx + 1}</strong></span>
                     </div>
 
-                    {/* Quick Competencies Preview */}
+                    {/* Candidate Verified Skills with Requirement Matching */}
                     <div className="dossier-skills-preview">
-                      <span className="preview-label">Core Competency Matrix:</span>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span className="preview-label">Candidate Verified Skills:</span>
+                        <span style={{ fontSize: "0.75rem", color: "var(--ink-subtle)" }}>
+                          {cand.skills?.length || 0} skills
+                        </span>
+                      </div>
+
                       <div className="skills-pill-wrap">
-                        <span className="skill-competency-pill">
-                          <span>Python</span>
-                          <span className="skill-dots">●●●●○</span>
-                        </span>
-                        <span className="skill-competency-pill">
-                          <span>MySQL</span>
-                          <span className="skill-dots">●●●○○</span>
-                        </span>
-                        <span className="skill-competency-pill">
-                          <span>React</span>
-                          <span className="skill-dots">●●●●○</span>
-                        </span>
+                        {cand.skills && cand.skills.length > 0 ? (
+                          cand.skills.map((sk) => {
+                            const reqComp = getRequirementComparison(sk.skill_name, sk.proficiency);
+                            const isFilterMatch =
+                              selectedSkillFilter.toLowerCase() === sk.skill_name.toLowerCase() ||
+                              (searchTerm && sk.skill_name.toLowerCase().includes(searchTerm.toLowerCase()));
+
+                            return (
+                              <span
+                                key={sk.skill_id}
+                                className={`skill-competency-pill ${isFilterMatch ? "highlighted" : ""}`}
+                                onClick={() => setSelectedSkillFilter(sk.skill_name)}
+                                title={`Click to filter candidates by ${sk.skill_name}`}
+                                style={{ cursor: "pointer" }}
+                              >
+                                <span>{sk.skill_name}</span>
+                                <span className="skill-dots">{renderProficiencyDots(sk.proficiency)}</span>
+                                <strong style={{ fontSize: "0.75rem" }}>{sk.proficiency}/5</strong>
+
+                                {reqComp && (
+                                  reqComp.isMet ? (
+                                    <span className="skill-req-status-met">
+                                      ✓ Req {reqComp.reqLevel}
+                                    </span>
+                                  ) : (
+                                    <span className="skill-req-status-gap">
+                                      ⚠️ Req {reqComp.reqLevel}
+                                    </span>
+                                  )
+                                )}
+                              </span>
+                            );
+                          })
+                        ) : (
+                          <span style={{ fontSize: "0.8rem", color: "var(--ink-muted)" }}>
+                            Candidate has not registered skills yet.
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -563,7 +775,6 @@ function Dashboard() {
                 <Loading text="Decrypting candidate proficiency records..." />
               ) : (
                 <div>
-                  {/* Bio & Track */}
                   {inspectedProfile?.headline && (
                     <div style={{ marginBottom: "18px" }}>
                       <span className="preview-label">Professional Headline:</span>
@@ -592,6 +803,36 @@ function Dashboard() {
                     </div>
                   )}
 
+                  {/* Complete Verified Skills Breakdown in Modal */}
+                  <div style={{ marginBottom: "20px" }}>
+                    <span className="preview-label">All Verified Skills & Proficiency:</span>
+                    <div className="skills-pill-wrap" style={{ marginTop: "8px" }}>
+                      {inspectedProfile?.skills && inspectedProfile.skills.length > 0 ? (
+                        inspectedProfile.skills.map((s) => {
+                          const reqComp = getRequirementComparison(s.skill_name, s.proficiency);
+                          return (
+                            <span key={s.id || s.skill_id} className="skill-competency-pill">
+                              <strong>{s.skill_name}</strong>
+                              <span className="skill-dots">{renderProficiencyDots(s.proficiency)}</span>
+                              <span>{s.proficiency}/5</span>
+                              {reqComp && (
+                                reqComp.isMet ? (
+                                  <span className="skill-req-status-met">✓ Meets Req ({reqComp.reqLevel})</span>
+                                ) : (
+                                  <span className="skill-req-status-gap">⚠️ Gap (Req: {reqComp.reqLevel})</span>
+                                )
+                              )}
+                            </span>
+                          );
+                        })
+                      ) : (
+                        <p style={{ fontSize: "0.85rem", color: "var(--ink-muted)" }}>
+                          No individual skills recorded for this candidate.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Match Evaluation Dial */}
                   <div
                     style={{
@@ -607,10 +848,10 @@ function Dashboard() {
                   >
                     <div>
                       <div style={{ fontWeight: 700, color: "var(--ink-title)" }}>
-                        Current Match for {selectedJob?.title || "Requisition"}:
+                        Match Evaluation for {selectedJob?.title || "Requisition"}:
                       </div>
                       <div style={{ fontSize: "0.85rem", color: "var(--ink-muted)" }}>
-                        Verified against {selectedJob?.company_name} minimum proficiency weights
+                        Calculated by pure domain matching engine
                       </div>
                     </div>
                     <div
@@ -629,22 +870,22 @@ function Dashboard() {
                       <span>Interactive Upskilling Simulator ("What-If" Analysis)</span>
                     </div>
                     <p style={{ fontSize: "0.825rem", color: "var(--ink-muted)", marginBottom: "12px" }}>
-                      Simulate how candidate match score improves if they complete specialized mentoring or upskilling:
+                      Simulate how candidate match score improves if they upskill in a required role competency:
                     </p>
 
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => handleSimulateSkillBump("python", 4)}
-                      >
-                        +1 Python Level (+15% Match)
-                      </button>
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => handleSimulateSkillBump("mysql", 3)}
-                      >
-                        +1 MySQL Level (+15% Match)
-                      </button>
+                      {jobRequirements.map((req) => {
+                        const sName = req.skill_name || `Skill #${req.skill_id}`;
+                        return (
+                          <button
+                            key={req.skill_id}
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => handleSimulateSkillBump(sName, 3)}
+                          >
+                            +1 {sName} Level (+15% Match)
+                          </button>
+                        );
+                      })}
                     </div>
 
                     {simulatedScore && (

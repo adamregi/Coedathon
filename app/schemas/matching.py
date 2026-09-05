@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_core import core_schema
 
 
@@ -64,6 +64,13 @@ class StudentMatchRequest(BaseModel):
     job_id: int
 
 
+class CandidateSkillSummary(BaseModel):
+    skill_id: int
+    skill_name: str
+    category: Optional[str] = None
+    proficiency: int
+
+
 class CandidateRankingItemRead(BaseModel):
     student_id: int
     student_name: str
@@ -71,3 +78,5 @@ class CandidateRankingItemRead(BaseModel):
     overall_match_percentage: int
     analysis_run_id: str
     calculated_at: datetime
+    headline: Optional[str] = None
+    skills: List[CandidateSkillSummary] = Field(default_factory=list)

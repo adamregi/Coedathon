@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, status
 from app.api.deps import (
     get_current_user,
@@ -72,6 +72,8 @@ def get_analysis_run(
 @router.get("/jobs/{job_id}/candidates", response_model=ResponseEnvelope[List[CandidateRankingItemRead]])
 def get_candidate_rankings_for_job(
     job_id: int,
+    skill: Optional[str] = Query(None, description="Filter candidates by specific skill name"),
+    min_proficiency: Optional[int] = Query(None, ge=1, le=5, description="Filter by minimum skill proficiency"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     current_user: User = Depends(require_employer_or_admin),
@@ -79,11 +81,16 @@ def get_candidate_rankings_for_job(
 ):
     """
     Employer / Admin: Retrieve candidate ranking for an employer-owned job,
-    sorted match-descending, preserving immutable calculations.
+    sorted match-descending, with optional skill-based filtering.
     """
     skip = (page - 1) * per_page
     candidates, total = matching_service.list_candidate_rankings_for_job(
-        job_id=job_id, actor=current_user, skip=skip, limit=per_page
+        job_id=job_id,
+        actor=current_user,
+        skill_name=skill,
+        min_proficiency=min_proficiency,
+        skip=skip,
+        limit=per_page,
     )
     return success_envelope(
         data=[c.model_dump() for c in candidates],
